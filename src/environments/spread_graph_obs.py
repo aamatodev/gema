@@ -7,6 +7,10 @@
 #
 #  Modified by Alessandro Amato - University of West Florida
 #
+#  Copyright (c) 2026.
+#  University of West Florida (https://uwf.edu/intelligent-systems-and-robotics/)
+#  All rights reserved.
+#
 #  ----- GEMA SCENARIO: SIMPLE SPREAD WITH GRAPH OBSERVATIONS -----
 #  Main differences with the standard simple spread environment:
 #  1. Normalize the reward between -1 and 1

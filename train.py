@@ -2,18 +2,22 @@ from benchmarl.benchmark import Benchmark
 from benchmarl.algorithms import MappoConfig
 from benchmarl.experiment import ExperimentConfig
 from benchmarl.models.mlp import MlpConfig
+
+from src.algorithms.gema import GemaConfig
 from src.environments.common import GEMATask
+from src.models.policies.gema_gnn_actor import GemaGnnActorConfig
+from src.models.policies.gema_mlp_critic import GemaMlpCriticConfig
 
 if __name__ == "__main__":
     experiment_config = ExperimentConfig.get_from_yaml("src/conf/experiment/base_experiment.yaml")
     task = GEMATask.SPREAD.get_from_yaml("src/conf/task/gema/spread.yaml")
-    algorithm_config = MappoConfig.get_from_yaml()
-    model_config = MlpConfig.get_from_yaml()
-    critic_model_config = MlpConfig.get_from_yaml()
+    algorithm_config = GemaConfig.get_from_yaml("src/conf/algorithms/gema_spread.yaml")
+    model_config = GemaGnnActorConfig.get_from_yaml("src/conf/models/gema_gnn_actor_spread.yaml")
+    critic_model_config = GemaMlpCriticConfig.get_from_yaml("src/conf/models/gema_gnn_critic_spread.yaml")
 
     benchmark = Benchmark(
         algorithm_configs=[
-            MappoConfig.get_from_yaml(),
+            algorithm_config,
         ],
         tasks=[
             task

@@ -14,9 +14,7 @@ from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule, TensorDictSequential
 from torchrl.data import Composite, Unbounded, Bounded
 
-from src.utilts.graph_utils import generate_graph
-
-from benchmarl.models.gnn import _batch_from_dense_to_ptg
+import importlib
 
 
 @dataclass
@@ -36,6 +34,7 @@ class GemaConfig(AlgorithmConfig):
 
     # Gema Config Params
     offline_model_path: str = MISSING
+    offline_model_class: str = MISSING
 
     @staticmethod
     def associated_class() -> Type[Algorithm]:
@@ -66,9 +65,12 @@ class Gema(Mappo):
         # to pass the kwargs to the super() class
 
         model_path = kwargs.pop("offline_model_path")
+        model_class_name_path = kwargs.pop("offline_model_class")
+        module_path, class_name = model_class_name_path.rsplit(".", 1)
+        sge_cls = getattr(importlib.import_module(module_path), class_name)
+
         super().__init__(**kwargs)
-        self.sge_model = SMACV2GraphContrastiveModel(device=self.device,
-                                                     enemy_feature_idx=list(range(4, 49)))
+        self.sge_model = sge_cls(num_agents=len(self.experiment.train_group_map["agents"]), device=self.device)
         self.sge_model.load_state_dict(torch.load(model_path, map_location=torch.device(self.device)))
         self.sge_model.eval()
 
@@ -95,18 +97,9 @@ class Gema(Mappo):
             critic_input_spec = Composite(
                 {group: self.observation_spec[group].clone().to(self.device)}
             )
-        # modify the state spec to include the current and goal state from the sge model
-        new_state = Composite({
-            "update_state": Bounded(
-                low=-1.0,
-                high=1.0,
-                shape=torch.Size(((self.state_spec["state"].shape[0] + 65),)),
-                device=self.device,
-                dtype=torch.float32,
-            )})
 
         value_module = self.critic_model_config.get_model(
-            input_spec=new_state,
+            input_spec=critic_input_spec,
             output_spec=critic_output_spec,
             n_agents=n_agents,
             centralised=True,
@@ -116,7 +109,6 @@ class Gema(Mappo):
             device=self.device,
             action_spec=self.action_spec,
         )
-
         if self.share_param_critic:
             expand_module = TensorDictModule(
                 lambda value: value.unsqueeze(-2).expand(
@@ -131,41 +123,21 @@ class Gema(Mappo):
 
     def process_batch(self, group: str, batch: TensorDictBase) -> TensorDictBase:
         # Here we process to batch to prepare it for the loss computation.
-        agents_obs = batch[(group, "observation")]
-        agents_obs = agents_obs.reshape(-1, agents_obs.shape[-1])  # Flatten batch dimensions
+        n_agents = len(self.group_map[group])
 
-        og_view = batch[("info", "full_obs")].view(-1, 5, 92)
-        graphs_from_batch = _batch_from_dense_to_ptg(batch_size=og_view.shape[0],
-                                                     node_features=agents_obs,
-                                                     edge_attr=None,
-                                                     n_agents=5,
-                                                     device=self.device,
-                                                     use_radius=True)
-
+        agents_obs = batch.get("agents")["observation"]
+        E, B, A = agents_obs.shape
         with torch.no_grad():
-            embeddings, final_embeddings, current_state, goal_state = self.sge_model(graphs_from_batch)
+            _, _, current_state, goal_state = self.sge_model(agents_obs.view(E * B, A))
 
-            similarity = torch.nn.functional.cosine_similarity(embeddings, final_embeddings, dim=-1)
-            similarity = (similarity + 1) / 2
+            similarity = torch.nn.functional.cosine_similarity(current_state, goal_state, dim=-1).view(E, B, -1).repeat(1, 1, n_agents)
+
             # add the similarity to the rewards
-            batch.set(("next", "reward"),
-                      batch.get(("next", "reward")) + similarity.to(batch.get(("next", "reward")).device).reshape(
-                          batch.get(("next", "reward")).shape),
+            batch.set(("next", group, "reward"),
+                      batch.get(("next", group, "reward")) + similarity.to(
+                          batch.get(("next", group, "reward")).device).reshape(
+                          batch.get(("next", group, "reward")).shape),
                       inplace=True)
-
-            self.experiment.logger.log({
-                "enhanced_reward": batch[("next", "reward")].mean(-1).sum(-1).sum(-1).mean(),
-                "distance": similarity.mean()
-            })
-
-        state_shape = batch.get(("state")).shape
-        updated_state = torch.cat([batch.get("state"),
-                                   embeddings.view(state_shape[0], state_shape[1], -1),
-                                   final_embeddings.view(state_shape[0], state_shape[1], -1),
-                                   similarity.view(state_shape[0], state_shape[1], 1)
-                                   ], dim=-1)
-        batch.set("update_state", updated_state)
-        batch.set(("next", "update_state"), updated_state)
 
         # Standard MAPPO processing
         batch = super().process_batch(group, batch)

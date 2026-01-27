@@ -1,8 +1,7 @@
-#  Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-#  This source code is licensed under the license found in the
-#  LICENSE file in the root directory of this source tree.
-#
+#  Copyright (c) 2025.
+#  University of West Florida (https://uwf.edu/intelligent-systems-and-robotics/)
+#  All rights reserved.
+
 import copy
 from typing import Callable, Dict, List, Optional
 
