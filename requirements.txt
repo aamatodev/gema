@@ -1,0 +1,4 @@
+vmas==1.5.0
+benchmarl @ git+https://github.com/aamatodev/BenchMARL.git@c61ab7328bf8c8791e76dceb5baa1ba0be87f98b
+scipy==1.15.3
+wandb[media]
