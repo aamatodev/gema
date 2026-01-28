@@ -79,7 +79,8 @@ class Gema(Mappo):
         E, B = batch.shape
 
         with torch.no_grad():
-            _, _, current_state, goal_state = self.sge_model(agents_obs.view(E * B, A, -1))
+            _, _, current_state, goal_state = self.sge_model(agents_obs.view(E * B, A) if len(agents_obs.shape) < 4
+                                                             else agents_obs.view(E * B, A, -1)) # ugly fix because obs from the load balancing comes out in a different shape
 
             similarity = torch.nn.functional.cosine_similarity(current_state, goal_state, dim=-1).view(E, B, -1).repeat(1, 1, A)
 
