@@ -156,7 +156,7 @@ class GemaBalancingGnnActor(Model):
 
         # ---------------- 4. Global contrastive context ---------- #
         with torch.no_grad():
-            final_emb, current_state_embedding, objective_state_embedding = self.sge_model(obs)
+            _, _, current_state_embedding, objective_state_embedding = self.sge_model(obs)
 
         similarity = F.cosine_similarity(current_state_embedding, objective_state_embedding, dim=-1).unsqueeze(
             1).unsqueeze(1)

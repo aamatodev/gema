@@ -72,14 +72,16 @@ class Gema(Mappo):
 
     def process_batch(self, group: str, batch: TensorDictBase) -> TensorDictBase:
         # Here we process to batch to prepare it for the loss computation.
-        n_agents = len(self.group_map[group])
+        A = len(self.group_map[group])
 
-        agents_obs = batch.get("agents")["observation"]
-        E, B, A = agents_obs.shape
+        agents_obs = batch.get((group, "observation"))
+
+        E, B = batch.shape
+
         with torch.no_grad():
-            _, _, current_state, goal_state = self.sge_model(agents_obs.view(E * B, A))
+            _, _, current_state, goal_state = self.sge_model(agents_obs.view(E * B, A, -1))
 
-            similarity = torch.nn.functional.cosine_similarity(current_state, goal_state, dim=-1).view(E, B, -1).repeat(1, 1, n_agents)
+            similarity = torch.nn.functional.cosine_similarity(current_state, goal_state, dim=-1).view(E, B, -1).repeat(1, 1, A)
 
             # add the similarity to the rewards
             batch.set(("next", group, "reward"),

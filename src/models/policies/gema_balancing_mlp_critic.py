@@ -120,7 +120,7 @@ class GemaBalancingMlpCritic(Model):
 
         # ---------------- 1. Global contrastive context ---------- #
         with torch.no_grad():
-            final_emb, state_emb, obj_emb = self.contrastive_model(
+            _, _, state_emb, obj_emb = self.sge_model(
                 tensordict.get("agent")["observation"].view(-1, self.n_agents,
                                                             tensordict.get("agent")["observation"].shape[-1]))
 

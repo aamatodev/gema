@@ -111,5 +111,6 @@ class BalancingGraphContrastiveModel(nn.Module):
         obj_pool = self.pool_projection(global_add_pool(obj_h, obj_graph.batch))
 
         final_emb = self.metric_head(torch.cat([cur_pool, obj_pool], dim=-1)).squeeze(1)
+        final_emb2 = self.metric_head(torch.cat([obj_pool, obj_pool], dim=-1)).squeeze(1)
 
-        return final_emb, cur_pool, obj_pool
+        return final_emb, final_emb2, cur_pool, obj_pool
