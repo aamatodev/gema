@@ -4,16 +4,13 @@
 
 
 from dataclasses import dataclass, MISSING
-from typing import Dict, Iterable, Tuple, Type
+from typing import Type
 
 from benchmarl.algorithms import Mappo
 from benchmarl.algorithms.common import Algorithm, AlgorithmConfig
 
 import torch
 from tensordict import TensorDictBase
-from tensordict.nn import TensorDictModule, TensorDictSequential
-from torchrl.data import Composite, Unbounded, Bounded
-
 import importlib
 
 
@@ -61,8 +58,6 @@ class Gema(Mappo):
     def __init__(
             self, **kwargs
     ):
-        # In the init function you can define the init parameters you need, just make sure
-        # to pass the kwargs to the super() class
 
         model_path = kwargs.pop("offline_model_path")
         model_class_name_path = kwargs.pop("offline_model_class")
@@ -70,56 +65,10 @@ class Gema(Mappo):
         sge_cls = getattr(importlib.import_module(module_path), class_name)
 
         super().__init__(**kwargs)
-        self.sge_model = sge_cls(num_agents=len(self.experiment.train_group_map["agents"]), device=self.device)
+        group = list(self.experiment.train_group_map.keys())[0]
+        self.sge_model = sge_cls(num_agents=len(self.experiment.train_group_map[group]), device=self.device)
         self.sge_model.load_state_dict(torch.load(model_path, map_location=torch.device(self.device)))
         self.sge_model.eval()
-
-    def get_critic(self, group: str) -> TensorDictModule:
-        n_agents = len(self.group_map[group])
-        if self.share_param_critic:
-            critic_output_spec = Composite({"state_value": Unbounded(shape=(1,))})
-        else:
-            critic_output_spec = Composite(
-                {
-                    group: Composite(
-                        {"state_value": Unbounded(shape=(n_agents, 1))},
-                        shape=(n_agents,),
-                    )
-                }
-            )
-
-        if self.state_spec is not None:
-            input_has_agent_dim = False
-            critic_input_spec = self.state_spec
-
-        else:
-            input_has_agent_dim = True
-            critic_input_spec = Composite(
-                {group: self.observation_spec[group].clone().to(self.device)}
-            )
-
-        value_module = self.critic_model_config.get_model(
-            input_spec=critic_input_spec,
-            output_spec=critic_output_spec,
-            n_agents=n_agents,
-            centralised=True,
-            input_has_agent_dim=input_has_agent_dim,
-            agent_group=group,
-            share_params=self.share_param_critic,
-            device=self.device,
-            action_spec=self.action_spec,
-        )
-        if self.share_param_critic:
-            expand_module = TensorDictModule(
-                lambda value: value.unsqueeze(-2).expand(
-                    *value.shape[:-1], n_agents, 1
-                ),
-                in_keys=["state_value"],
-                out_keys=[(group, "state_value")],
-            )
-            value_module = TensorDictSequential(value_module, expand_module)
-
-        return value_module
 
     def process_batch(self, group: str, batch: TensorDictBase) -> TensorDictBase:
         # Here we process to batch to prepare it for the loss computation.

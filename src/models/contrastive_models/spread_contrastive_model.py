@@ -13,8 +13,8 @@ from torch_geometric.nn import GATv2Conv, global_add_pool
 from benchmarl.models.gnn import _batch_from_dense_to_ptg, _get_edge_index
 
 # Local utilities ----------------------------------------------------------- #
-from src.models.utils.goal_gen_utils import generate_objective_node_features
-from src.models.utils.goal_gen_utils import extract_features_from_obs
+from src.models.utils.goal_gen_spread_utils import generate_objective_node_features
+from src.models.utils.goal_gen_spread_utils import extract_features_from_obs
 
 
 class MLPEncoder(nn.Module):
@@ -161,7 +161,6 @@ class SpreadGraphContrastiveModel(nn.Module):
             edge_index=_get_edge_index("full", False, num_total_nodes, self.device),
             self_loops=False,
             pos=cur_nodes,
-            edge_radius=100
         )
         obj_graph = _batch_from_dense_to_ptg(
             x=obj_encoded,

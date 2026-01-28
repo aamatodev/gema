@@ -3,3 +3,4 @@ benchmarl @ git+https://github.com/aamatodev/BenchMARL.git@c61ab7328bf8c8791e76d
 scipy==1.15.3
 wandb[media]
 torch_geometric
+pettingzoo==1.24.3

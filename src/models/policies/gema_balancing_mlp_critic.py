@@ -1,11 +1,11 @@
-#  Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-#  This source code is licensed under the license found in the
-#  LICENSE file in the root directory of this source tree.
-#
+#  Copyright (c) 2025.
+#  University of West Florida (https://uwf.edu/intelligent-systems-and-robotics/)
+#  All rights reserved.
+
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass, MISSING
 from pathlib import Path
 from typing import Optional, Sequence, Type
@@ -14,11 +14,10 @@ import torch
 
 from tensordict import TensorDictBase
 from torch import nn
-from torchrl.modules import MLP, MultiAgentMLP
 
 from benchmarl.models.common import Model, ModelConfig
 
-from src.models.utils.goal_gen_utils import split_spread_observation, create_objective_features
+from src.models.utils.goal_gen_balancing_utils import extract_features_from_obs
 
 
 class Encoder(nn.Module):
@@ -28,51 +27,17 @@ class Encoder(nn.Module):
         super().__init__()
         self.linear = nn.Linear(in_features, 256)
         self.linear1 = nn.Linear(256, 256)
-        self.linear2 = nn.Linear(256, out_features)
+        self.linear3 = nn.Linear(256, out_features)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # (B, F)
         l1 = torch.relu(self.linear(x))
         l2 = torch.relu(self.linear1(l1))
-        l3 = self.linear2(l2)
+        l3 = self.linear3(l2)
 
         return l3
 
 
-def extract_features_from_obs(obs):
-    agents_pos = obs["agent_pos"]
-    agents_vel = obs["agent_vel"]
-    landmarks_pos = obs["landmark_pos"]
-    relative_landmarks_pos = obs["relative_landmark_pos"]
-    relative_other_pos = obs["other_pos"]
-
-    return agents_pos, agents_vel, landmarks_pos, relative_landmarks_pos, relative_other_pos
-
-
-def generate_objective_node_features(landmark_pos, n_agents=3):
-    # in simple spread, the objective is reached once all the landmarks are covered. This happens when the agents
-    # positions are equals to the landmarks positions
-    n_landmark = landmark_pos.shape[1]
-    objective_pos = landmark_pos[:, 1, :].view(-1, n_landmark, 2).clone().detach()
-    objective_vel = torch.zeros_like(objective_pos)
-
-    relative_landmarks_pos = landmark_pos - objective_pos.repeat(1, 1, n_landmark)
-
-    # Dynamically generate indices for n agents
-    indices = []
-    for i in range(n_agents):
-        s = i * 2
-        exclude = [s, s + 1]
-        indices.append([j for j in range(2 * n_agents) if j not in exclude])
-
-    indices = torch.tensor(indices, device=landmark_pos.device)
-    indices = indices.unsqueeze(0).expand(landmark_pos.shape[0], -1, -1)
-    # Use `gather` to apply the indexing along the last dimension
-    relative_other_pos = torch.gather(relative_landmarks_pos, 2, indices)
-
-    return objective_pos, objective_vel, relative_landmarks_pos, relative_other_pos
-
-
-class GemaMlpCritic(Model):
+class GemaBalancingMlpCritic(Model):
     """Multi layer perceptron model.
 
     Args:
@@ -107,23 +72,16 @@ class GemaMlpCritic(Model):
             model_index=kwargs.pop("model_index"),
             is_critic=kwargs.pop("is_critic"),
         )
-        # self.in_keys.remove(('agents', 'observation', 'landmark_pos'))
-        self.reduced_keys = self.in_keys.copy()
-        self.reduced_keys.remove(('agents', 'observation', 'landmark_pos'))
 
-        self.input_features = sum(
-            [spec.shape[-1] for spec in self.input_spec.values(True, True)]
-        ) - self.n_agents * 2  # we remove the "landmark_pos" from the input features
-
+        self.input_features = 39
         self.output_features = self.output_leaf_spec.shape[-1]
 
-        self.mlp = Encoder(51, self.output_features).to(self.device)
+        self.mlp = Encoder(77, self.output_features).to(self.device)
 
-        # 4) Pretrained contrastive model to get global context
+        # 4) Pre‑trained contrastive model providing a *global* context vector
         self.sge_model = model_class(num_agents=self.n_agents, device=self.device)
         self.sge_model.load_state_dict(torch.load(model_path, map_location=torch.device(self.device)))
         self.sge_model.eval()
-
     def _perform_checks(self):
         super()._perform_checks()
 
@@ -160,56 +118,42 @@ class GemaMlpCritic(Model):
 
     def _forward(self, tensordict: TensorDictBase) -> TensorDictBase:
 
-        # ---------------- 1. Parse observation ---------------- #
-        obs = tensordict.get("agents")["observation"]
+        # ---------------- 1. Global contrastive context ---------- #
+        with torch.no_grad():
+            final_emb, state_emb, obj_emb = self.contrastive_model(
+                tensordict.get("agent")["observation"].view(-1, self.n_agents,
+                                                            tensordict.get("agent")["observation"].shape[-1]))
 
-        (
-            agents_pos,
-            _agents_vel,  # Velocities unused for now
-            landmark_pos,
-            _rel_landmarks_pos,
-            _rel_other_pos,
-        ) = split_spread_observation(obs)
+        similarity = torch.nn.functional.cosine_similarity(state_emb,
+                                                           obj_emb,
+                                                           dim=-1)
+        context = torch.cat([
+            state_emb,
+            obj_emb,
+            similarity.unsqueeze(1)], dim=-1)
 
-        batch_size = agents_pos.size(0)
+        # ---------------- 2 Parse observation ---------------- #
 
-        # ---------------- 2. Build *objective* state ------------ #
-        (
-            obj_pos,
-            _obj_vel,
-            _obj_rel_landmarks_pos,
-            _obj_rel_other_pos,
-        ) = create_objective_features(landmark_pos.view(-1, obs.shape[-1], 6), obs.shape[-1])
+        obs = tensordict["agent"]["observation"]
+        current_status, target_status = extract_features_from_obs(obs)
+        batch_size = current_status.shape[0]
 
-        # ---------------- 2. Encode graph nodes ----------------- #
-        # type feature helps GNN distinguish agent vs. landmark
+        current_status = current_status[..., 0, :]
+        cur_nodes_f = current_status.reshape(-1, self.n_agents * 2, 1)
+
+        agent_type = torch.zeros((cur_nodes_f.shape[0], self.n_agents, 1), device=self.device)
+        lm_type = torch.ones_like(agent_type)
+
+        cur_types = torch.cat([agent_type, lm_type], dim=1)
+        cur_feats = torch.cat([cur_nodes_f, cur_types], dim=-1)
 
         shape = []
         for i in obs.shape:
             shape.append(i)
-        shape.append(1)
-        agent_type = torch.zeros(tuple(shape), device=self.device)
-        obj_type = torch.ones_like(agent_type)
 
         shape[-1] = -1
-        cur_nodes = torch.cat([agents_pos.view(shape), obj_pos.view(shape)], dim=-2)  # (B, 2N, 2)
-        cur_types = torch.cat([agent_type, obj_type], dim=-2)  # (B, 2N, 1)
-        shape[-2] = self.n_agents * 2
-        cur_feats = torch.cat([cur_nodes, cur_types], dim=-1)  # (B*2N, 3)
         shape[-2] = 1
         cur_feats = cur_feats.view(tuple(shape))
-
-        with torch.no_grad():
-            _, _, current_state, goal_state = self.sge_model(obs.view(-1, self.n_agents))
-
-        similarity = torch.nn.functional.cosine_similarity(current_state,
-                                                           goal_state,
-                                                           dim=-1)
-        context = torch.cat([
-            current_state,
-            goal_state,
-            similarity.unsqueeze(1)], dim=-1)
-
         cur_feats = torch.cat([cur_feats, context.view(tuple(shape))], dim=-1)
 
         # Has multi-agent input dimension
@@ -236,19 +180,19 @@ class GemaMlpCritic(Model):
 
 
 @dataclass
-class GemaMlpCriticConfig(ModelConfig):
+class GemaBalancingMlpCriticConfig(ModelConfig):
     """Dataclass config for a :class:`~benchmarl.models.Mlp`."""
 
     activation_class: Type[nn.Module] = MISSING
-
     # Gema Config Params
     offline_model_path: str = MISSING
     offline_model_class: str = MISSING
 
     activation_kwargs: Optional[dict] = None
+
     norm_class: Type[nn.Module] = None
     norm_kwargs: Optional[dict] = None
 
     @staticmethod
     def associated_class():
-        return GemaMlpCritic
+        return GemaBalancingMlpCritic

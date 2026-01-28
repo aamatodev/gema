@@ -14,7 +14,7 @@ from torch_geometric.nn import GATv2Conv
 from tensordict import TensorDictBase
 from benchmarl.models.common import Model, ModelConfig
 
-from src.models.utils.goal_gen_utils import split_spread_observation, create_objective_features
+from src.models.utils.goal_gen_spread_utils import split_spread_observation, create_objective_features
 
 
 # --------------------------------------------------------------------------- #
@@ -25,6 +25,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
+
 
 class FinalEncoder(nn.Module):
     """One‑layer MLP used to embed raw node features."""
@@ -82,7 +83,7 @@ class MLPEncoder(nn.Module):
 #                            Main Agent‑Level Model                           #
 # --------------------------------------------------------------------------- #
 
-class GemaGnnActor(Model):
+class GemaSpreadGnnActor(Model):
     """Actor network that augments each agent’s input with a learned
     representation of the *objective* (all agents sitting on landmarks)."""
 
@@ -208,7 +209,7 @@ class GemaGnnActor(Model):
 # --------------------------------------------------------------------------- #
 
 @dataclass
-class GemaGnnActorConfig(ModelConfig):
+class GemaSpreadGnnActorConfig(ModelConfig):
     """Hydra config schema for :class:`SimpleSpreadObjectiveSharing`."""
 
     activation_class: Type[nn.Module] = MISSING
@@ -223,4 +224,4 @@ class GemaGnnActorConfig(ModelConfig):
 
     @staticmethod
     def associated_class():
-        return GemaGnnActor
+        return GemaSpreadGnnActor

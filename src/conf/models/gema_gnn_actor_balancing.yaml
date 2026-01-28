@@ -1,0 +1,5 @@
+name: gnn_gema_critic
+
+activation_class: torch.nn.ReLU
+offline_model_path: "checkpoints/balancing/cosine_graph_model.pth"
+offline_model_class: "src.models.contrastive_models.balancing_contrastive_model.BalancingGraphContrastiveModel"
