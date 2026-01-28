@@ -1,5 +1,5 @@
 # ───────────────────────── Base image ─────────────────────────
-FROM nvidia/cuda:12.8.0-runtime-ubuntu22.0
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 LABEL maintainer="Alessandro Amato"
 
 # Set environment variables
@@ -17,12 +17,9 @@ WORKDIR /workspace
 VOLUME ["/workspace/output"]
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN pip install -r requirements.txt && \
+    pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128 && \
     pip install --no-cache-dir \
-        torch-cluster -f https://pytorch-geometric.com/whl/torch-2.8.0+cu128.html \
-        torch_geometric \
-        cmake
+        torch-cluster -f https://pytorch-geometric.com/whl/torch-2.8.0+cu128.html
 
 COPY . .
-
-RUN pip install -r ./external/epymarl/requirements.txt
