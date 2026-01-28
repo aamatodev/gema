@@ -1,6 +1,10 @@
 # ───────────────────────── Base image ─────────────────────────
-FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.0
 LABEL maintainer="Alessandro Amato"
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && \
     apt-get install -y \
@@ -15,7 +19,7 @@ VOLUME ["/workspace/output"]
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir \
-        torch-cluster -f https://pytorch-geometric.com/whl/torch-2.5.1+cu124.html \
+        torch-cluster -f https://pytorch-geometric.com/whl/torch-2.8.0+cu128.html \
         torch_geometric \
         cmake
 
