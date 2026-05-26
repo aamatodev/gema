@@ -61,7 +61,6 @@ You will be prompted to choose whether to log the run to Weights & Biases (wandb
   title={Encoding Goals as Graphs: Structured Objectives for Scalable Cooperative Multi-Agent Reinforcement Learning},
   author={Alessandro Amato and Raffaele Galliera and K. Brent Venable and Niranjan Suri},
   booktitle={The 25th International Conference on Autonomous Agents and Multi-Agent Systems},
-  year={2026},
-  url={https://openreview.net/forum?id=R0La9WDfgw}
+  year={2026}
 }
 ```
